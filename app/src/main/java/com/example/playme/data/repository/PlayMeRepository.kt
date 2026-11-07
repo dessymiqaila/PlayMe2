@@ -25,8 +25,18 @@ class PlayMeRepository(private val dao: PlayMeDao) {
         list.associate { it.playlistId to it.count }
     }
 
+    val videoPlaylistMap: Flow<Map<Long, Set<Int>>> = dao.getAllCrossRefsFlow().map { list ->
+        list.groupBy({ it.videoId }, { it.playlistId })
+            .mapValues { it.value.toSet() }
+    }
+
     fun getVideosForPlaylist(playlistId: Int): Flow<List<VideoEntity>> {
         return dao.getVideosForPlaylistFlow(playlistId)
+    }
+
+    suspend fun deleteVideo(videoId: Long) = withContext(Dispatchers.IO) {
+        dao.deleteCrossRefsForVideo(videoId)
+        dao.deleteVideoById(videoId)
     }
 
     fun getPlaylistIdsForVideo(videoId: Long): Flow<List<Int>> {
@@ -86,10 +96,20 @@ class PlayMeRepository(private val dao: PlayMeDao) {
             val totalBytes = demoVideos.sumOf { it.fileSizeBytes }
             saveSetting("total_bytes_str", FolderScanner.formatFileSize(totalBytes))
 
-            // Add sample videos to Playlist 1 and Playlist 2 as demonstration
-            val savedVideos = dao.getVideoByUri(demoVideos.first().uriString)
-            if (savedVideos != null) {
-                dao.addVideoToPlaylist(VideoPlaylistCrossRef(savedVideos.id, 1))
+            val v1 = dao.getVideoByUri(demoVideos.getOrNull(0)?.uriString ?: "")
+            val v2 = dao.getVideoByUri(demoVideos.getOrNull(1)?.uriString ?: "")
+            val v3 = dao.getVideoByUri(demoVideos.getOrNull(2)?.uriString ?: "")
+
+            if (v1 != null) {
+                dao.addVideoToPlaylist(VideoPlaylistCrossRef(v1.id, 1))
+                dao.addVideoToPlaylist(VideoPlaylistCrossRef(v1.id, 2)) // Multi-playlist!
+            }
+            if (v2 != null) {
+                dao.addVideoToPlaylist(VideoPlaylistCrossRef(v2.id, 2))
+                dao.addVideoToPlaylist(VideoPlaylistCrossRef(v2.id, 3))
+            }
+            if (v3 != null) {
+                dao.addVideoToPlaylist(VideoPlaylistCrossRef(v3.id, 6))
             }
         }
         demoVideos

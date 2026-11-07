@@ -52,7 +52,7 @@ interface PlayMeDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPlaylists(playlists: List<PlaylistEntity>)
 
-    @Query("SELECT * FROM videos INNER JOIN video_playlist_cross_ref ON videos.id = video_playlist_cross_ref.videoId WHERE video_playlist_cross_ref.playlistId = :playlistId ORDER BY video_playlist_cross_ref.addedAt DESC")
+    @Query("SELECT videos.* FROM videos INNER JOIN video_playlist_cross_ref ON videos.id = video_playlist_cross_ref.videoId WHERE video_playlist_cross_ref.playlistId = :playlistId ORDER BY video_playlist_cross_ref.addedAt DESC")
     fun getVideosForPlaylistFlow(playlistId: Int): Flow<List<VideoEntity>>
 
     @Query("SELECT playlistId, COUNT(videoId) as count FROM video_playlist_cross_ref GROUP BY playlistId")
@@ -67,8 +67,17 @@ interface PlayMeDao {
     @Query("DELETE FROM video_playlist_cross_ref WHERE videoId = :videoId AND playlistId = :playlistId")
     suspend fun removeVideoFromPlaylist(videoId: Long, playlistId: Int)
 
+    @Query("SELECT * FROM video_playlist_cross_ref")
+    fun getAllCrossRefsFlow(): Flow<List<VideoPlaylistCrossRef>>
+
     @Query("SELECT EXISTS(SELECT 1 FROM video_playlist_cross_ref WHERE videoId = :videoId AND playlistId = :playlistId)")
     suspend fun isVideoInPlaylist(videoId: Long, playlistId: Int): Boolean
+
+    @Query("DELETE FROM videos WHERE id = :id")
+    suspend fun deleteVideoById(id: Long)
+
+    @Query("DELETE FROM video_playlist_cross_ref WHERE videoId = :videoId")
+    suspend fun deleteCrossRefsForVideo(videoId: Long)
 
     // App Settings
     @Query("SELECT value FROM app_settings WHERE `key` = :key LIMIT 1")

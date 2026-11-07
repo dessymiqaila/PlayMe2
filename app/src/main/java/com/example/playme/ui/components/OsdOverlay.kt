@@ -299,27 +299,27 @@ fun OsdOverlay(
             }
         }
 
-        // Right-Side Playlist Icons (1..5)
+        // Right-Side Playlist Icons (1..6)
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 14.dp, bottom = 54.dp)
+                .padding(end = 12.dp, bottom = 54.dp)
         ) {
             Column(
                 modifier = Modifier.testTag("right_playlist_container"),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                (1..5).forEach { playlistNum ->
+                (1..6).forEach { playlistNum ->
                     val isInPlaylist = activePlaylistIds.contains(playlistNum)
                     PlaylistCircleBadge(
                         playlistNumber = playlistNum,
                         isActive = isInPlaylist,
                         onToggle = { onTogglePlaylist(playlistNum) },
-                        size = 46.dp
+                        size = 42.dp
                     )
                 }
             }

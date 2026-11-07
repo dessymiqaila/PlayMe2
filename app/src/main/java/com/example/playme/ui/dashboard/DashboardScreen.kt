@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material3.Button
@@ -61,7 +62,8 @@ fun DashboardScreen(
     playlistCounts: Map<Int, Int>,
     lastPlayedIndex: Int,
     isScanning: Boolean,
-    onPlayAll: () -> Unit,
+    onResumeRandom: () -> Unit,
+    onNewRandom: () -> Unit,
     onRescan: () -> Unit,
     onChangeFolder: () -> Unit,
     onLoadDemo: () -> Unit,
@@ -221,45 +223,92 @@ fun DashboardScreen(
                     }
                 }
 
-                // Section: Action Buttons (Full Width)
+                // Section: Action Buttons (Full Width) - 2-Grid Resume Random | New Random
                 item(span = { GridItemSpan(2) }) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Main Action: Play All Videos
-                        Button(
-                            onClick = onPlayAll,
-                            enabled = videoCount > 0,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .testTag("play_all_button"),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = orangeAccent,
-                                disabledContainerColor = Color(0xFF382315)
-                            )
+                        // 2 Grid Buttons: Resume Random & New Random
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(horizontalAlignment = Alignment.Start) {
-                                Text(
-                                    text = "▶ Play All Videos",
-                                    color = Color.White,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
+                            // Button 1: Resume Random (Lanjut Random)
+                            Button(
+                                onClick = onResumeRandom,
+                                enabled = videoCount > 0,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(58.dp)
+                                    .testTag("resume_random_button"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = orangeAccent,
+                                    disabledContainerColor = Color(0xFF382315)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
                                 )
-                                if (videoCount > 0 && lastPlayedIndex > 0) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column(horizontalAlignment = Alignment.Start) {
                                     Text(
-                                        text = "Resuming from video #${lastPlayedIndex + 1}",
+                                        text = "▶ Resume Random",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = if (videoCount > 0) "Video #${lastPlayedIndex + 1}" else "Empty",
                                         color = Color.White.copy(alpha = 0.85f),
-                                        fontSize = 11.sp
+                                        fontSize = 10.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            // Button 2: New Random (Random Baru)
+                            Button(
+                                onClick = onNewRandom,
+                                enabled = videoCount > 0,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(58.dp)
+                                    .testTag("new_random_button"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2A2140),
+                                    disabledContainerColor = Color(0xFF1E192B)
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF7C4DFF)),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Shuffle,
+                                    contentDescription = null,
+                                    tint = Color(0xFFB388FF),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column(horizontalAlignment = Alignment.Start) {
+                                    Text(
+                                        text = "🔀 New Random",
+                                        color = Color(0xFFEADBFF),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "Fresh Mix from #1",
+                                        color = Color(0xFFB388FF),
+                                        fontSize = 10.sp,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -335,15 +384,15 @@ fun DashboardScreen(
                             letterSpacing = 0.8.sp
                         )
                         Text(
-                            text = "5 Playlists Available",
+                            text = "6 Playlists Available",
                             color = Color(0xFF6C7689),
                             fontSize = 11.sp
                         )
                     }
                 }
 
-                // 2-Column Grid Playlists 1..5
-                val playlistIds = listOf(1, 2, 3, 4, 5)
+                // 2-Column Grid Playlists 1..6
+                val playlistIds = listOf(1, 2, 3, 4, 5, 6)
                 items(playlistIds) { pId ->
                     val count = playlistCounts[pId] ?: 0
                     Card(

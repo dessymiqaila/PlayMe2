@@ -36,9 +36,19 @@ abstract class PlayMeDatabase : RoomDatabase() {
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
-                            // Seed playlists 1..5
                             CoroutineScope(Dispatchers.IO).launch {
-                                val seeded = (1..5).map {
+                                val seeded = (1..6).map {
+                                    PlaylistEntity(id = it, name = "Playlist $it")
+                                }
+                                INSTANCE?.playMeDao()?.insertPlaylists(seeded)
+                            }
+                        }
+
+                        override fun onOpen(db: SupportSQLiteDatabase) {
+                            super.onOpen(db)
+                            // Ensure 1..6 exist
+                            CoroutineScope(Dispatchers.IO).launch {
+                                val seeded = (1..6).map {
                                     PlaylistEntity(id = it, name = "Playlist $it")
                                 }
                                 INSTANCE?.playMeDao()?.insertPlaylists(seeded)

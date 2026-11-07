@@ -75,7 +75,8 @@ class MainActivity : ComponentActivity() {
                                 playlistCounts = playlistCounts,
                                 lastPlayedIndex = lastPlayedIndex,
                                 isScanning = isScanning,
-                                onPlayAll = { viewModel.playAllVideos() },
+                                onResumeRandom = { viewModel.playResumeRandom() },
+                                onNewRandom = { viewModel.playNewRandom() },
                                 onRescan = { viewModel.rescanCurrentFolder(context) },
                                 onChangeFolder = { folderLauncher.launch(null) },
                                 onLoadDemo = { viewModel.loadDemoVideos(context) },
@@ -87,18 +88,21 @@ class MainActivity : ComponentActivity() {
                             val playbackVideos by viewModel.playbackVideos.collectAsStateWithLifecycle()
                             val playMode by viewModel.playOrderMode.collectAsStateWithLifecycle()
                             val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
-                            val activePlaylistIds by viewModel.activePlaylistIdsForCurrentVideo.collectAsStateWithLifecycle()
+                            val videoPlaylistMap by viewModel.videoPlaylistMap.collectAsStateWithLifecycle()
 
                             VerticalPlayerScreen(
                                 videos = playbackVideos,
                                 initialIndex = screen.initialIndex,
                                 playMode = playMode,
                                 playbackSpeed = playbackSpeed,
-                                activePlaylistIdsForCurrentVideo = activePlaylistIds,
+                                videoPlaylistMap = videoPlaylistMap,
                                 onCyclePlayMode = { viewModel.cyclePlayOrderMode() },
                                 onSpeedChanged = { spd -> viewModel.setPlaybackSpeed(spd) },
                                 onTogglePlaylist = { videoId, playlistId ->
                                     viewModel.togglePlaylist(videoId, playlistId)
+                                },
+                                onDeleteVideo = { videoId ->
+                                    viewModel.deleteVideo(videoId)
                                 },
                                 onVideoChanged = { video, idx ->
                                     viewModel.onVideoChanged(video, idx)

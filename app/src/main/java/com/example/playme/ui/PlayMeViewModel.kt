@@ -10,6 +10,8 @@ import com.example.playme.data.db.VideoEntity
 import com.example.playme.data.model.PlayOrderMode
 import com.example.playme.data.repository.PlayMeRepository
 import com.example.playme.data.scanner.FolderScanner
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,12 +22,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 sealed class Screen {
     object Dashboard : Screen()
     data class Player(val initialIndex: Int = 0, val playlistFilter: Int? = null) : Screen()
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlayMeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: PlayMeRepository
@@ -49,16 +53,7 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
 
     val availableSpeeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
-    fun setPlaybackSpeed(speed: Float) {
-        _playbackSpeed.value = speed
-    }
-
-    fun cyclePlaybackSpeed() {
-        val current = _playbackSpeed.value
-        val idx = availableSpeeds.indexOf(current)
-        val nextIdx = if (idx >= 0) (idx + 1) % availableSpeeds.size else 2
-        _playbackSpeed.value = availableSpeeds[nextIdx]
-    }
+    private val _shuffleSeed = MutableStateFlow(System.currentTimeMillis())
 
     private val _activePlaylistFilter = MutableStateFlow<Int?>(null)
     val activePlaylistFilter: StateFlow<Int?> = _activePlaylistFilter.asStateFlow()
@@ -87,44 +82,47 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
     val playlistCounts: StateFlow<Map<Int, Int>> = repository.playlistCounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    val videoPlaylistMap: StateFlow<Map<Long, Set<Int>>> = repository.videoPlaylistMap
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val _lastPlayedIndex = MutableStateFlow(0)
     val lastPlayedIndex: StateFlow<Int> = _lastPlayedIndex.asStateFlow()
 
     private val _activeVideoId = MutableStateFlow<Long?>(null)
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val activePlaylistIdsForCurrentVideo: StateFlow<Set<Int>> = _activeVideoId.flatMapLatest { id ->
-        if (id != null) {
-            repository.getPlaylistIdsForVideo(id).map { it.toSet() }
+    val activePlaylistIdsForCurrentVideo: StateFlow<Set<Int>> = combine(
+        _activeVideoId,
+        videoPlaylistMap
+    ) { activeId, map ->
+        if (activeId != null) {
+            map[activeId] ?: emptySet()
         } else {
-            flowOf(emptySet())
+            emptySet()
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // Base source videos cleanly switches between Playlist and All Videos
+    private val baseSourceVideos: Flow<List<VideoEntity>> = _activePlaylistFilter.flatMapLatest { filter ->
+        if (filter != null) {
+            repository.getVideosForPlaylist(filter)
+        } else {
+            repository.allVideos
+        }
+    }
+
     // Filtered and sorted videos for playback
     val playbackVideos: StateFlow<List<VideoEntity>> = combine(
-        allVideos,
-        _activePlaylistFilter,
+        baseSourceVideos,
         _playOrderMode,
-        playlistCounts // triggers re-eval when playlist changes
-    ) { videos, filter, mode, _ ->
-        val candidateVideos = if (filter != null) {
-            // Need videos in this playlist
-            // Filter by cross-ref
-            videos.filter { video ->
-                repository.isVideoInPlaylist(video.id, filter)
-            }
-        } else {
-            videos
-        }
-
+        _shuffleSeed
+    ) { source, mode, seed ->
         when (mode) {
-            PlayOrderMode.SHUFFLE -> candidateVideos.shuffled()
-            PlayOrderMode.NAME_AZ -> candidateVideos.sortedBy { it.fileName.lowercase() }
-            PlayOrderMode.DATE_MODIFIED -> candidateVideos.sortedByDescending { it.dateModified }
-            PlayOrderMode.DURATION -> candidateVideos.sortedByDescending { it.durationMs }
-            PlayOrderMode.FILE_SIZE -> candidateVideos.sortedByDescending { it.fileSizeBytes }
-            PlayOrderMode.REPEAT_ONE -> candidateVideos
+            PlayOrderMode.SHUFFLE -> source.shuffled(Random(seed))
+            PlayOrderMode.NAME_AZ -> source.sortedBy { it.fileName.lowercase() }
+            PlayOrderMode.DATE_MODIFIED -> source.sortedByDescending { it.dateModified }
+            PlayOrderMode.DURATION -> source.sortedByDescending { it.durationMs }
+            PlayOrderMode.FILE_SIZE -> source.sortedByDescending { it.fileSizeBytes }
+            PlayOrderMode.REPEAT_ONE -> source
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -140,6 +138,17 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        _playbackSpeed.value = speed
+    }
+
+    fun cyclePlaybackSpeed() {
+        val current = _playbackSpeed.value
+        val idx = availableSpeeds.indexOf(current)
+        val nextIdx = if (idx >= 0) (idx + 1) % availableSpeeds.size else 2
+        _playbackSpeed.value = availableSpeeds[nextIdx]
     }
 
     fun onFolderSelected(context: Context, treeUri: Uri) {
@@ -181,10 +190,23 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun playAllVideos() {
-        val targetIndex = _lastPlayedIndex.value.coerceIn(0, (allVideos.value.size - 1).coerceAtLeast(0))
+    fun playResumeRandom() {
+        val count = allVideos.value.size
+        val targetIndex = if (count > 0) _lastPlayedIndex.value.coerceIn(0, count - 1) else 0
         _activePlaylistFilter.value = null
+        _playOrderMode.value = PlayOrderMode.SHUFFLE
         _currentScreen.value = Screen.Player(initialIndex = targetIndex, playlistFilter = null)
+    }
+
+    fun playNewRandom() {
+        _shuffleSeed.value = System.currentTimeMillis()
+        _activePlaylistFilter.value = null
+        _playOrderMode.value = PlayOrderMode.SHUFFLE
+        _lastPlayedIndex.value = 0
+        viewModelScope.launch {
+            repository.saveSetting("last_played_index", "0")
+        }
+        _currentScreen.value = Screen.Player(initialIndex = 0, playlistFilter = null)
     }
 
     fun playPlaylist(playlistId: Int) {
@@ -195,6 +217,9 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
     fun cyclePlayOrderMode() {
         val next = _playOrderMode.value.next()
         _playOrderMode.value = next
+        if (next == PlayOrderMode.SHUFFLE) {
+            _shuffleSeed.value = System.currentTimeMillis()
+        }
         viewModelScope.launch {
             repository.saveSetting("play_order_mode", next.name)
         }
@@ -203,6 +228,12 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
     fun togglePlaylist(videoId: Long, playlistId: Int) {
         viewModelScope.launch {
             repository.toggleVideoInPlaylist(videoId, playlistId)
+        }
+    }
+
+    fun deleteVideo(videoId: Long) {
+        viewModelScope.launch {
+            repository.deleteVideo(videoId)
         }
     }
 
