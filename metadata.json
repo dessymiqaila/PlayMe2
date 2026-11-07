@@ -1,0 +1,6 @@
+{
+  "name": "PlayMe",
+  "description": "Local vertical video player with TikTok-style swipe gestures, folder management, Room database persistence, and playlist system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

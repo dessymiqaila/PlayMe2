@@ -1,0 +1,6 @@
+{
+  "summary": "Architectural blueprint and implementation plan for PlayMe, a native Android local vertical video player with TikTok-style swipe gestures, Room database persistence, folder scanning, 5-playlist management with custom crossed-carrot icons, and Media3 ExoPlayer integration.",
+  "updatedAt": "2026-11-07T01:43:40.060989416Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
