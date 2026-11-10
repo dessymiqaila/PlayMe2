@@ -25,13 +25,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -88,6 +89,10 @@ fun VerticalPlayerScreen(
     playMode: PlayOrderMode,
     playbackSpeed: Float = 1.0f,
     videoPlaylistMap: Map<Long, Set<Int>> = emptyMap(),
+    badgesAlwaysVisible: Boolean = false,
+    badgeOffsetY: Float = 0f,
+    onToggleBadgesAlwaysVisible: () -> Unit = {},
+    onSaveBadgeOffset: (Float) -> Unit = {},
     onCyclePlayMode: () -> Unit,
     onSpeedChanged: (Float) -> Unit = {},
     onTogglePlaylist: (videoId: Long, playlistId: Int) -> Unit,
@@ -118,7 +123,7 @@ fun VerticalPlayerScreen(
         pageCount = { videos.size }
     )
 
-    // ExoPlayer window pool (manages current, prev, next)
+    // ExoPlayer window pool (keyed by video.id for stable decoding)
     val playerPool = remember { ExoPlayerPool(context) }
     DisposableEffect(Unit) {
         onDispose {
@@ -154,6 +159,24 @@ fun VerticalPlayerScreen(
     val currentPage = pagerState.currentPage.coerceIn(0, (videos.size - 1).coerceAtLeast(0))
     val activeVideo = videos.getOrNull(currentPage)
 
+    // Transient HUD message when play order mode changes
+    var modeFeedbackMessage by remember { mutableStateOf<String?>(null) }
+
+    // Track active video ID to maintain playback position when order changes
+    var currentActiveVideoId by remember { mutableStateOf<Long?>(activeVideo?.id) }
+
+    // When the list is re-ordered (e.g. from Shuffle to A-Z, Date, Size, etc.),
+    // keep the current playing video active by scrolling to its new index in the list!
+    LaunchedEffect(videos) {
+        val targetId = currentActiveVideoId
+        if (targetId != null) {
+            val newIndex = videos.indexOfFirst { it.id == targetId }
+            if (newIndex >= 0 && newIndex != pagerState.currentPage) {
+                pagerState.scrollToPage(newIndex)
+            }
+        }
+    }
+
     // Reactive active playlist IDs for the current video (supports multiple playlists!)
     val activePlaylistIds = activeVideo?.let { videoPlaylistMap[it.id] } ?: emptySet()
 
@@ -161,6 +184,7 @@ fun VerticalPlayerScreen(
     LaunchedEffect(activeVideo?.id, currentPage) {
         isOsdVisible = false
         if (activeVideo != null) {
+            currentActiveVideoId = activeVideo.id
             onVideoChanged(activeVideo, currentPage)
         }
     }
@@ -182,7 +206,8 @@ fun VerticalPlayerScreen(
     LaunchedEffect(currentPage, videos, playMode) {
         if (currentPage in videos.indices) {
             playerPool.updateActiveWindow(currentPage, videos)
-            val activePlayer = playerPool.getOrCreatePlayer(currentPage, videos[currentPage])
+            val currentVid = videos[currentPage]
+            val activePlayer = playerPool.getOrCreatePlayer(currentVid)
             activePlayer.repeatMode = Player.REPEAT_MODE_ONE // TikTok style continuous loop
             activePlayer.play()
             isPlayingState = true
@@ -193,7 +218,8 @@ fun VerticalPlayerScreen(
     LaunchedEffect(currentPage, videos) {
         while (isActive) {
             if (currentPage in videos.indices) {
-                val player = playerPool.getOrCreatePlayer(currentPage, videos[currentPage])
+                val currentVid = videos[currentPage]
+                val player = playerPool.getOrCreatePlayer(currentVid)
                 currentPositionMs = player.currentPosition.coerceAtLeast(0L)
                 currentDurationMs = player.duration.coerceAtLeast(0L)
                 isPlayingState = player.isPlaying
@@ -205,7 +231,8 @@ fun VerticalPlayerScreen(
     // Function to handle play/pause toggle
     val togglePlayPause = {
         if (currentPage in videos.indices) {
-            val player = playerPool.getOrCreatePlayer(currentPage, videos[currentPage])
+            val currentVid = videos[currentPage]
+            val player = playerPool.getOrCreatePlayer(currentVid)
             if (player.isPlaying) {
                 player.pause()
                 isPlayingState = false
@@ -221,7 +248,7 @@ fun VerticalPlayerScreen(
     // Save position periodically and on back
     BackHandler {
         if (activeVideo != null && currentPage in videos.indices) {
-            val player = playerPool.getOrCreatePlayer(currentPage, activeVideo)
+            val player = playerPool.getOrCreatePlayer(activeVideo)
             onSavePosition(activeVideo.id, player.currentPosition)
         }
         onBack()
@@ -239,11 +266,12 @@ fun VerticalPlayerScreen(
         VerticalPager(
             state = pagerState,
             beyondViewportPageCount = 1,
+            key = { page -> videos.getOrNull(page)?.id ?: page.toLong() },
             modifier = Modifier.fillMaxSize()
         ) { page ->
             val video = videos.getOrNull(page)
             if (video != null) {
-                val player = playerPool.getOrCreatePlayer(page, video)
+                val player = playerPool.getOrCreatePlayer(video)
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Video Surface
@@ -320,7 +348,34 @@ fun VerticalPlayerScreen(
             )
         }
 
-        // OSD Overlay (Top metadata + Speed Controller + Mode Cycler + Circular Playlist Badges)
+        // Transient Mode HUD feedback indicator
+        AnimatedVisibility(
+            visible = modeFeedbackMessage != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 64.dp)
+        ) {
+            if (modeFeedbackMessage != null) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xEE161A24),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF6D00))
+                ) {
+                    Text(
+                        text = modeFeedbackMessage ?: "",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        // OSD Overlay (Top metadata + Speed Controller + Icon-only Mode Cycler + Circular Playlist Badges)
         OsdOverlay(
             isVisible = isOsdVisible,
             currentVideo = activeVideo,
@@ -329,7 +384,19 @@ fun VerticalPlayerScreen(
             playMode = playMode,
             playbackSpeed = playbackSpeed,
             activePlaylistIds = activePlaylistIds,
-            onCyclePlayMode = onCyclePlayMode,
+            badgesAlwaysVisible = badgesAlwaysVisible,
+            badgeOffsetY = badgeOffsetY,
+            onToggleBadgesAlwaysVisible = onToggleBadgesAlwaysVisible,
+            onSaveBadgeOffset = onSaveBadgeOffset,
+            onCyclePlayMode = {
+                onCyclePlayMode()
+                val nextMode = playMode.next()
+                modeFeedbackMessage = "Order: ${nextMode.label}"
+                scope.launch {
+                    delay(1500)
+                    modeFeedbackMessage = null
+                }
+            },
             onSpeedChanged = onSpeedChanged,
             onTogglePlaylist = { playlistId ->
                 if (activeVideo != null) {
@@ -338,7 +405,7 @@ fun VerticalPlayerScreen(
             },
             onBack = {
                 if (activeVideo != null && currentPage in videos.indices) {
-                    val player = playerPool.getOrCreatePlayer(currentPage, activeVideo)
+                    val player = playerPool.getOrCreatePlayer(activeVideo)
                     onSavePosition(activeVideo.id, player.currentPosition)
                 }
                 onBack()
@@ -352,7 +419,7 @@ fun VerticalPlayerScreen(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // Pause Action Bar: Shows File Info, Share Button, and Delete Button when video is PAUSED
+            // Pause Action Bar: Shows File Info, Share Button, and Physical Delete Button when video is PAUSED
             AnimatedVisibility(
                 visible = !isPlayingState && activeVideo != null,
                 enter = fadeIn() + slideInVertically { it / 2 },
@@ -412,7 +479,7 @@ fun VerticalPlayerScreen(
                                 }
                             }
 
-                            // Actions: Share & Delete
+                            // Actions: Share & Physical Delete
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -451,7 +518,7 @@ fun VerticalPlayerScreen(
                                     )
                                 }
 
-                                // Delete Button
+                                // Physical Delete Button
                                 IconButton(
                                     onClick = { showDeleteConfirmDialog = true },
                                     modifier = Modifier
@@ -461,8 +528,8 @@ fun VerticalPlayerScreen(
                                         .testTag("pause_delete_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = "Delete File",
+                                        imageVector = Icons.Filled.DeleteForever,
+                                        contentDescription = "Delete File from Storage",
                                         tint = Color(0xFFFF5252),
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -479,7 +546,8 @@ fun VerticalPlayerScreen(
                 durationMs = currentDurationMs,
                 onSeek = { targetMs ->
                     if (currentPage in videos.indices) {
-                        val player = playerPool.getOrCreatePlayer(currentPage, videos[currentPage])
+                        val currentVid = videos[currentPage]
+                        val player = playerPool.getOrCreatePlayer(currentVid)
                         player.seekTo(targetMs)
                         currentPositionMs = targetMs
                     }
@@ -487,26 +555,31 @@ fun VerticalPlayerScreen(
             )
         }
 
-        // Delete Confirmation Dialog
+        // Delete Confirmation Dialog (Permanent storage deletion)
         if (showDeleteConfirmDialog && activeVideo != null) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmDialog = false },
-                title = { Text(text = "Delete Video", color = Color.White, fontWeight = FontWeight.Bold) },
+                title = { Text(text = "Delete File From Storage", color = Color.White, fontWeight = FontWeight.Bold) },
                 text = {
                     Text(
-                        text = "Are you sure you want to remove \"${activeVideo.fileName}\" from your library?",
+                        text = "Are you sure you want to permanently delete \"${activeVideo.fileName}\" from your device storage and library?",
                         color = Color(0xFFA1A8B8)
                     )
                 },
                 confirmButton = {
                     Button(
                         onClick = {
+                            val vid = activeVideo
                             showDeleteConfirmDialog = false
-                            onDeleteVideo(activeVideo.id)
+                            playerPool.releasePlayer(vid.id)
+                            onDeleteVideo(vid.id)
+                            if (videos.size <= 1) {
+                                onBack()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF1744))
                     ) {
-                        Text("Delete", color = Color.White)
+                        Text("Delete Permanently", color = Color.White)
                     }
                 },
                 dismissButton = {

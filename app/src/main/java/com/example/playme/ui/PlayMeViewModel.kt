@@ -85,6 +85,14 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
     val videoPlaylistMap: StateFlow<Map<Long, Set<Int>>> = repository.videoPlaylistMap
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    val playlistBadgesAlwaysVisible: StateFlow<Boolean> = repository.getSettingFlow("playlist_badges_always_visible")
+        .map { it == "true" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val badgeOffsetY: StateFlow<Float> = repository.getSettingFlow("badge_offset_y")
+        .map { it?.toFloatOrNull() ?: 0f }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
     private val _lastPlayedIndex = MutableStateFlow(0)
     val lastPlayedIndex: StateFlow<Int> = _lastPlayedIndex.asStateFlow()
 
@@ -231,9 +239,34 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun deleteVideo(context: Context, videoId: Long) {
+        viewModelScope.launch {
+            repository.deleteVideo(context, videoId)
+        }
+    }
+
     fun deleteVideo(videoId: Long) {
         viewModelScope.launch {
-            repository.deleteVideo(videoId)
+            repository.deleteVideo(getApplication(), videoId)
+        }
+    }
+
+    fun togglePlaylistBadgesVisibility() {
+        val current = playlistBadgesAlwaysVisible.value
+        viewModelScope.launch {
+            repository.saveSetting("playlist_badges_always_visible", (!current).toString())
+        }
+    }
+
+    fun setPlaylistBadgesAlwaysVisible(always: Boolean) {
+        viewModelScope.launch {
+            repository.saveSetting("playlist_badges_always_visible", always.toString())
+        }
+    }
+
+    fun saveBadgeOffsetY(offsetY: Float) {
+        viewModelScope.launch {
+            repository.saveSetting("badge_offset_y", offsetY.toString())
         }
     }
 

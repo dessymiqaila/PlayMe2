@@ -34,4 +34,14 @@ class ExampleUnitTest {
     assertEquals(0.5f, speeds.first(), 0.001f)
     assertEquals(2.0f, speeds.last(), 0.001f)
   }
+
+  @Test
+  fun testBadgeOffsetClamping() {
+    val minOffset = -300f
+    val maxOffset = 220f
+    val testOffsetFarUp = -500f
+    val testOffsetFarDown = 400f
+    assertEquals(minOffset, testOffsetFarUp.coerceIn(minOffset, maxOffset), 0.01f)
+    assertEquals(maxOffset, testOffsetFarDown.coerceIn(minOffset, maxOffset), 0.01f)
+  }
 }

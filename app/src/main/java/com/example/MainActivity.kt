@@ -57,6 +57,9 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    val badgesAlwaysVisible by viewModel.playlistBadgesAlwaysVisible.collectAsStateWithLifecycle()
+                    val badgeOffsetY by viewModel.badgeOffsetY.collectAsStateWithLifecycle()
+
                     when (val screen = currentScreen) {
                         is Screen.Dashboard -> {
                             val videoCount by viewModel.videoCount.collectAsStateWithLifecycle()
@@ -75,6 +78,8 @@ class MainActivity : ComponentActivity() {
                                 playlistCounts = playlistCounts,
                                 lastPlayedIndex = lastPlayedIndex,
                                 isScanning = isScanning,
+                                badgesAlwaysVisible = badgesAlwaysVisible,
+                                onToggleBadgesAlwaysVisible = { viewModel.togglePlaylistBadgesVisibility() },
                                 onResumeRandom = { viewModel.playResumeRandom() },
                                 onNewRandom = { viewModel.playNewRandom() },
                                 onRescan = { viewModel.rescanCurrentFolder(context) },
@@ -96,13 +101,17 @@ class MainActivity : ComponentActivity() {
                                 playMode = playMode,
                                 playbackSpeed = playbackSpeed,
                                 videoPlaylistMap = videoPlaylistMap,
+                                badgesAlwaysVisible = badgesAlwaysVisible,
+                                badgeOffsetY = badgeOffsetY,
+                                onToggleBadgesAlwaysVisible = { viewModel.togglePlaylistBadgesVisibility() },
+                                onSaveBadgeOffset = { offset -> viewModel.saveBadgeOffsetY(offset) },
                                 onCyclePlayMode = { viewModel.cyclePlayOrderMode() },
                                 onSpeedChanged = { spd -> viewModel.setPlaybackSpeed(spd) },
                                 onTogglePlaylist = { videoId, playlistId ->
                                     viewModel.togglePlaylist(videoId, playlistId)
                                 },
                                 onDeleteVideo = { videoId ->
-                                    viewModel.deleteVideo(videoId)
+                                    viewModel.deleteVideo(context, videoId)
                                 },
                                 onVideoChanged = { video, idx ->
                                     viewModel.onVideoChanged(video, idx)

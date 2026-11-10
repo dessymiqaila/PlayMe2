@@ -27,10 +27,12 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Update
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -62,6 +64,8 @@ fun DashboardScreen(
     playlistCounts: Map<Int, Int>,
     lastPlayedIndex: Int,
     isScanning: Boolean,
+    badgesAlwaysVisible: Boolean = false,
+    onToggleBadgesAlwaysVisible: () -> Unit = {},
     onResumeRandom: () -> Unit,
     onNewRandom: () -> Unit,
     onRescan: () -> Unit,
@@ -87,7 +91,7 @@ fun DashboardScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Header Top Bar with "Saidz Rehulka"
+            // Header Top Bar with "Saidz Rehulka" and "v2.0"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -112,13 +116,29 @@ fun DashboardScreen(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text(
-                            text = "Saidz Rehulka",
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 0.5.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Saidz Rehulka",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(orangeAccent)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "v2.0",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                         Text(
                             text = "Local Vertical Video Player",
                             color = Color(0xFFA1A8B8),
@@ -217,6 +237,79 @@ fun DashboardScreen(
                                     label = "Last Scanned",
                                     value = lastScanTimeStr,
                                     modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Section: Player Display Preference (Badges 1-6 Always vs On Touch)
+                item(span = { GridItemSpan(2) }) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onToggleBadgesAlwaysVisible() }
+                            .testTag("dashboard_badge_setting_card"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (badgesAlwaysVisible) Color(0x66FF6D00) else Color(0xFF262C3D)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(if (badgesAlwaysVisible) Color(0xFFFF6D00) else Color(0xFF222736)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (badgesAlwaysVisible) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                        contentDescription = null,
+                                        tint = if (badgesAlwaysVisible) Color.White else amberAccent,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Playlist Badges (1-6) Display",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = if (badgesAlwaysVisible) "Always Shown on screen" else "Auto-hide (Shown on touch only)",
+                                        color = if (badgesAlwaysVisible) amberAccent else Color(0xFFA1A8B8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (badgesAlwaysVisible) Color(0xFFFF6D00) else Color(0xFF242A3A))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (badgesAlwaysVisible) "ALWAYS" else "ON TOUCH",
+                                    color = if (badgesAlwaysVisible) Color.White else Color(0xFFCCD2E0),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }

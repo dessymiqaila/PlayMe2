@@ -14,7 +14,8 @@ import com.example.playme.data.db.VideoEntity
 @OptIn(UnstableApi::class)
 class ExoPlayerPool(private val context: Context) {
 
-    private val playerMap = mutableMapOf<Int, ExoPlayer>()
+    // Keyed by videoId (Long) so that list reordering preserves players seamlessly
+    private val playerMap = mutableMapOf<Long, ExoPlayer>()
     private var currentSpeed: Float = 1.0f
 
     fun setPlaybackSpeed(speed: Float) {
@@ -38,8 +39,8 @@ class ExoPlayerPool(private val context: Context) {
         }
     }
 
-    fun getOrCreatePlayer(index: Int, video: VideoEntity): ExoPlayer {
-        val existing = playerMap[index]
+    fun getOrCreatePlayer(video: VideoEntity): ExoPlayer {
+        val existing = playerMap[video.id]
         if (existing != null) {
             return existing
         }
@@ -53,28 +54,36 @@ class ExoPlayerPool(private val context: Context) {
                 setPlaybackSpeed(currentSpeed)
                 prepare()
             } catch (e: Exception) {
-                Log.e("ExoPlayerPool", "Error preparing player for index $index", e)
+                Log.e("ExoPlayerPool", "Error preparing player for video ${video.id}", e)
             }
 
             addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    Log.e("ExoPlayerPool", "ExoPlayer error on video index $index: ${error.errorCodeName}", error)
+                    Log.e("ExoPlayerPool", "ExoPlayer error on video ${video.id}: ${error.errorCodeName}", error)
                 }
             })
         }
 
-        playerMap[index] = player
+        playerMap[video.id] = player
         return player
     }
 
-    fun updateActiveWindow(currentIndex: Int, videos: List<VideoEntity>) {
-        val activeWindow = setOf(currentIndex - 1, currentIndex, currentIndex + 1)
+    fun getOrCreatePlayer(index: Int, video: VideoEntity): ExoPlayer {
+        return getOrCreatePlayer(video)
+    }
 
-        // Release any player outside the window [current - 1, current, current + 1]
+    fun updateActiveWindow(currentIndex: Int, videos: List<VideoEntity>) {
+        if (videos.isEmpty() || currentIndex !in videos.indices) return
+
+        val activeIndices = setOf(currentIndex - 1, currentIndex, currentIndex + 1)
+        val activeVideos = activeIndices.mapNotNull { videos.getOrNull(it) }
+        val activeVideoIds = activeVideos.map { it.id }.toSet()
+
+        // Release any player outside the window of 3 active videos
         val iterator = playerMap.entries.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (entry.key !in activeWindow) {
+            if (entry.key !in activeVideoIds) {
                 try {
                     entry.value.stop()
                     entry.value.release()
@@ -86,21 +95,30 @@ class ExoPlayerPool(private val context: Context) {
         }
 
         // Ensure active window items are prepared
-        for (i in activeWindow) {
-            if (i in videos.indices) {
-                try {
-                    val player = getOrCreatePlayer(i, videos[i])
-                    player.setPlaybackSpeed(currentSpeed)
-                    if (i == currentIndex) {
-                        player.playWhenReady = true
-                    } else {
-                        player.playWhenReady = false
-                        player.seekTo(0)
-                    }
-                } catch (e: Exception) {
-                    Log.e("ExoPlayerPool", "Error updating window player for index $i", e)
+        val currentVideo = videos[currentIndex]
+        for (video in activeVideos) {
+            try {
+                val player = getOrCreatePlayer(video)
+                player.setPlaybackSpeed(currentSpeed)
+                if (video.id == currentVideo.id) {
+                    player.playWhenReady = true
+                } else {
+                    player.playWhenReady = false
+                    player.seekTo(0)
                 }
+            } catch (e: Exception) {
+                Log.e("ExoPlayerPool", "Error updating window player for video ${video.id}", e)
             }
+        }
+    }
+
+    fun releasePlayer(videoId: Long) {
+        val player = playerMap.remove(videoId)
+        try {
+            player?.stop()
+            player?.release()
+        } catch (e: Exception) {
+            Log.w("ExoPlayerPool", "Error releasing player for video $videoId", e)
         }
     }
 

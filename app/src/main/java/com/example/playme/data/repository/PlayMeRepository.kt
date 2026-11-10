@@ -2,6 +2,9 @@ package com.example.playme.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import com.example.playme.data.db.AppSettingEntity
 import com.example.playme.data.db.PlayMeDao
 import com.example.playme.data.db.PlaylistEntity
@@ -13,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class PlayMeRepository(private val dao: PlayMeDao) {
 
@@ -32,6 +36,50 @@ class PlayMeRepository(private val dao: PlayMeDao) {
 
     fun getVideosForPlaylist(playlistId: Int): Flow<List<VideoEntity>> {
         return dao.getVideosForPlaylistFlow(playlistId)
+    }
+
+    /**
+     * Deletes the video both from the database and physically from disk/SAF storage.
+     */
+    suspend fun deleteVideo(context: Context, videoId: Long): Boolean = withContext(Dispatchers.IO) {
+        val video = dao.getVideoById(videoId)
+        var fileDeleted = false
+        if (video != null) {
+            val uriStr = video.uriString
+            try {
+                val uri = Uri.parse(uriStr)
+                if (uri.scheme == "content") {
+                    try {
+                        val docFile = DocumentFile.fromSingleUri(context, uri)
+                        if (docFile != null && docFile.exists()) {
+                            fileDeleted = docFile.delete()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("PlayMeRepository", "DocumentFile delete failed, trying fallback", e)
+                    }
+                    if (!fileDeleted) {
+                        try {
+                            fileDeleted = DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        } catch (e: Exception) {
+                            val count = context.contentResolver.delete(uri, null, null)
+                            fileDeleted = count > 0
+                        }
+                    }
+                } else {
+                    val filePath = if (uri.scheme == "file") uri.path ?: "" else uriStr
+                    val file = File(filePath)
+                    if (file.exists()) {
+                        fileDeleted = file.delete()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PlayMeRepository", "Failed to physically delete file for video $videoId: $uriStr", e)
+            }
+        }
+        // Remove associations and video row from Room
+        dao.deleteCrossRefsForVideo(videoId)
+        dao.deleteVideoById(videoId)
+        fileDeleted
     }
 
     suspend fun deleteVideo(videoId: Long) = withContext(Dispatchers.IO) {
