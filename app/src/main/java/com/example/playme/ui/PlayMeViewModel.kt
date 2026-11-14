@@ -93,6 +93,10 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
         .map { it?.toFloatOrNull() ?: 0f }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
+    val progressBarScale: StateFlow<Int> = repository.getSettingFlow("progress_bar_scale")
+        .map { (it?.toIntOrNull() ?: 3).coerceIn(1, 4) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3)
+
     private val _lastPlayedIndex = MutableStateFlow(0)
     val lastPlayedIndex: StateFlow<Int> = _lastPlayedIndex.asStateFlow()
 
@@ -267,6 +271,13 @@ class PlayMeViewModel(application: Application) : AndroidViewModel(application) 
     fun saveBadgeOffsetY(offsetY: Float) {
         viewModelScope.launch {
             repository.saveSetting("badge_offset_y", offsetY.toString())
+        }
+    }
+
+    fun setProgressBarScale(scale: Int) {
+        val clamped = scale.coerceIn(1, 4)
+        viewModelScope.launch {
+            repository.saveSetting("progress_bar_scale", clamped.toString())
         }
     }
 

@@ -3,6 +3,7 @@ package com.example
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -29,6 +30,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
 
         setContent {
@@ -59,6 +61,7 @@ class MainActivity : ComponentActivity() {
 
                     val badgesAlwaysVisible by viewModel.playlistBadgesAlwaysVisible.collectAsStateWithLifecycle()
                     val badgeOffsetY by viewModel.badgeOffsetY.collectAsStateWithLifecycle()
+                    val progressBarScale by viewModel.progressBarScale.collectAsStateWithLifecycle()
 
                     when (val screen = currentScreen) {
                         is Screen.Dashboard -> {
@@ -79,7 +82,9 @@ class MainActivity : ComponentActivity() {
                                 lastPlayedIndex = lastPlayedIndex,
                                 isScanning = isScanning,
                                 badgesAlwaysVisible = badgesAlwaysVisible,
+                                progressBarScale = progressBarScale,
                                 onToggleBadgesAlwaysVisible = { viewModel.togglePlaylistBadgesVisibility() },
+                                onProgressBarScaleChanged = { scale -> viewModel.setProgressBarScale(scale) },
                                 onResumeRandom = { viewModel.playResumeRandom() },
                                 onNewRandom = { viewModel.playNewRandom() },
                                 onRescan = { viewModel.rescanCurrentFolder(context) },
@@ -100,6 +105,7 @@ class MainActivity : ComponentActivity() {
                                 initialIndex = screen.initialIndex,
                                 playMode = playMode,
                                 playbackSpeed = playbackSpeed,
+                                progressBarScale = progressBarScale,
                                 videoPlaylistMap = videoPlaylistMap,
                                 badgesAlwaysVisible = badgesAlwaysVisible,
                                 badgeOffsetY = badgeOffsetY,
@@ -107,6 +113,7 @@ class MainActivity : ComponentActivity() {
                                 onSaveBadgeOffset = { offset -> viewModel.saveBadgeOffsetY(offset) },
                                 onCyclePlayMode = { viewModel.cyclePlayOrderMode() },
                                 onSpeedChanged = { spd -> viewModel.setPlaybackSpeed(spd) },
+                                onProgressBarScaleChanged = { scale -> viewModel.setProgressBarScale(scale) },
                                 onTogglePlaylist = { videoId, playlistId ->
                                     viewModel.togglePlaylist(videoId, playlistId)
                                 },

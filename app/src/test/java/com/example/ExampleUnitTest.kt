@@ -44,4 +44,21 @@ class ExampleUnitTest {
     assertEquals(minOffset, testOffsetFarUp.coerceIn(minOffset, maxOffset), 0.01f)
     assertEquals(maxOffset, testOffsetFarDown.coerceIn(minOffset, maxOffset), 0.01f)
   }
+
+  @Test
+  fun testProgressBarScaleMultiplier() {
+    assertEquals(3, 3.coerceIn(1, 4))
+    assertEquals(1, 0.coerceIn(1, 4))
+    assertEquals(4, 10.coerceIn(1, 4))
+  }
+
+  @Test
+  fun testAbLoopNormalization() {
+    val a = 12_000L
+    val b = 5_000L
+    val start = minOf(a, b)
+    val end = maxOf(a, b)
+    assertEquals(5_000L, start)
+    assertEquals(12_000L, end)
+  }
 }

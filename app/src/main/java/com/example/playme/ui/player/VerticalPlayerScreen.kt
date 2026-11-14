@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -26,7 +27,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +89,7 @@ fun VerticalPlayerScreen(
     initialIndex: Int,
     playMode: PlayOrderMode,
     playbackSpeed: Float = 1.0f,
+    progressBarScale: Int = 3,
     videoPlaylistMap: Map<Long, Set<Int>> = emptyMap(),
     badgesAlwaysVisible: Boolean = false,
     badgeOffsetY: Float = 0f,
@@ -95,6 +97,7 @@ fun VerticalPlayerScreen(
     onSaveBadgeOffset: (Float) -> Unit = {},
     onCyclePlayMode: () -> Unit,
     onSpeedChanged: (Float) -> Unit = {},
+    onProgressBarScaleChanged: (Int) -> Unit = {},
     onTogglePlaylist: (videoId: Long, playlistId: Int) -> Unit,
     onDeleteVideo: (videoId: Long) -> Unit = {},
     onVideoChanged: (video: VideoEntity, index: Int) -> Unit,
@@ -116,12 +119,22 @@ fun VerticalPlayerScreen(
     }
 
     val context = LocalContext.current
+    val currentView = LocalView.current
     val scope = rememberCoroutineScope()
     val safeInitialIndex = initialIndex.coerceIn(0, (videos.size - 1).coerceAtLeast(0))
     val pagerState = rememberPagerState(
         initialPage = safeInitialIndex,
         pageCount = { videos.size }
     )
+
+    // Keep screen always awake while player is open
+    DisposableEffect(currentView) {
+        val previousKeepScreenOn = currentView.keepScreenOn
+        currentView.keepScreenOn = true
+        onDispose {
+            currentView.keepScreenOn = previousKeepScreenOn
+        }
+    }
 
     // ExoPlayer window pool (keyed by video.id for stable decoding)
     val playerPool = remember { ExoPlayerPool(context) }
@@ -148,8 +161,9 @@ fun VerticalPlayerScreen(
         }
     }
 
-    // Default: hidden OSD and playlist stack
+    // Default: hidden OSD and playlist stack (unless pinned)
     var isOsdVisible by remember { mutableStateOf(false) }
+    var isSeekingBarDragging by remember { mutableStateOf(false) }
     var pulseToken by remember { mutableLongStateOf(0L) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
@@ -159,14 +173,17 @@ fun VerticalPlayerScreen(
     val currentPage = pagerState.currentPage.coerceIn(0, (videos.size - 1).coerceAtLeast(0))
     val activeVideo = videos.getOrNull(currentPage)
 
-    // Transient HUD message when play order mode changes
+    // A-B Repeat Loop Points (resets per video)
+    var abPointAMs by remember(activeVideo?.id) { mutableStateOf<Long?>(null) }
+    var abPointBMs by remember(activeVideo?.id) { mutableStateOf<Long?>(null) }
+
+    // Transient HUD message for mode / A-B feedback
     var modeFeedbackMessage by remember { mutableStateOf<String?>(null) }
 
     // Track active video ID to maintain playback position when order changes
     var currentActiveVideoId by remember { mutableStateOf<Long?>(activeVideo?.id) }
 
-    // When the list is re-ordered (e.g. from Shuffle to A-Z, Date, Size, etc.),
-    // keep the current playing video active by scrolling to its new index in the list!
+    // Keep active video aligned when list order changes
     LaunchedEffect(videos) {
         val targetId = currentActiveVideoId
         if (targetId != null) {
@@ -177,7 +194,7 @@ fun VerticalPlayerScreen(
         }
     }
 
-    // Reactive active playlist IDs for the current video (supports multiple playlists!)
+    // Reactive active playlist IDs for the current video
     val activePlaylistIds = activeVideo?.let { videoPlaylistMap[it.id] } ?: emptySet()
 
     // Notify video change immediately on activeVideo change
@@ -189,9 +206,9 @@ fun VerticalPlayerScreen(
         }
     }
 
-    // Auto-hide OSD after 4 seconds of inactivity if visible
-    LaunchedEffect(isOsdVisible) {
-        if (isOsdVisible) {
+    // Auto-hide OSD after 4 seconds of inactivity (pauses timer while dragging seekbar)
+    LaunchedEffect(isOsdVisible, isSeekingBarDragging) {
+        if (isOsdVisible && !isSeekingBarDragging) {
             delay(4000)
             isOsdVisible = false
         }
@@ -214,17 +231,33 @@ fun VerticalPlayerScreen(
         }
     }
 
-    // Coroutine to poll playback position and duration for seekbar
-    LaunchedEffect(currentPage, videos) {
+    // High-frequency coroutine to poll playback position & enforce A-B Repeat Loop
+    LaunchedEffect(currentPage, videos, abPointAMs, abPointBMs, isSeekingBarDragging) {
         while (isActive) {
             if (currentPage in videos.indices) {
                 val currentVid = videos[currentPage]
                 val player = playerPool.getOrCreatePlayer(currentVid)
-                currentPositionMs = player.currentPosition.coerceAtLeast(0L)
-                currentDurationMs = player.duration.coerceAtLeast(0L)
+                val pos = player.currentPosition.coerceAtLeast(0L)
+                val dur = player.duration.coerceAtLeast(0L)
+                currentPositionMs = pos
+                currentDurationMs = dur
                 isPlayingState = player.isPlaying
+
+                // Enforce A-B Repeat Loop if both A and B are defined
+                val pointA = abPointAMs
+                val pointB = abPointBMs
+                if (pointA != null && pointB != null && !isSeekingBarDragging) {
+                    val startMs = minOf(pointA, pointB)
+                    val endMs = maxOf(pointA, pointB)
+                    if (endMs - startMs >= 300L) {
+                        if (pos >= endMs || pos < startMs - 300L) {
+                            player.seekTo(startMs)
+                            currentPositionMs = startMs
+                        }
+                    }
+                }
             }
-            delay(150)
+            delay(60)
         }
     }
 
@@ -260,7 +293,6 @@ fun VerticalPlayerScreen(
             .background(Color.Black)
             .testTag("vertical_player_screen")
     ) {
-        // Horizontal drag swipe accumulator
         var horizontalDragX by remember { mutableFloatStateOf(0f) }
 
         VerticalPager(
@@ -280,6 +312,7 @@ fun VerticalPlayerScreen(
                             PlayerView(ctx).apply {
                                 this.player = player
                                 useController = false
+                                keepScreenOn = true
                                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -289,6 +322,7 @@ fun VerticalPlayerScreen(
                             }
                         },
                         update = { view ->
+                            view.keepScreenOn = true
                             if (view.player != player) {
                                 view.player = player
                             }
@@ -296,7 +330,7 @@ fun VerticalPlayerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Transparent Gesture Area for reliable Single Tap and Double Tap
+                    // Transparent Gesture Area for Single Tap & Double Tap
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -305,10 +339,8 @@ fun VerticalPlayerScreen(
                                     onDragStart = { horizontalDragX = 0f },
                                     onDragEnd = {
                                         if (horizontalDragX < -120f && page < videos.size - 1) {
-                                            // Swipe Left -> Next Video
                                             scope.launch { pagerState.animateScrollToPage(page + 1) }
                                         } else if (horizontalDragX > 120f && page > 0) {
-                                            // Swipe Right -> Prev Video
                                             scope.launch { pagerState.animateScrollToPage(page - 1) }
                                         }
                                         horizontalDragX = 0f
@@ -323,11 +355,9 @@ fun VerticalPlayerScreen(
                             .pointerInput(page) {
                                 detectTapGestures(
                                     onTap = {
-                                        // Single tap: toggle OSD visibility
                                         isOsdVisible = !isOsdVisible
                                     },
                                     onDoubleTap = {
-                                        // Double tap: toggle Play / Pause with visual indicator and reveal OSD
                                         togglePlayPause()
                                     }
                                 )
@@ -348,7 +378,7 @@ fun VerticalPlayerScreen(
             )
         }
 
-        // Transient Mode HUD feedback indicator
+        // Transient Mode / A-B Loop HUD feedback indicator
         AnimatedVisibility(
             visible = modeFeedbackMessage != null,
             enter = fadeIn(),
@@ -362,7 +392,7 @@ fun VerticalPlayerScreen(
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color(0xEE161A24),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF6D00))
+                    border = BorderStroke(1.dp, Color(0xFFFF6D00))
                 ) {
                     Text(
                         text = modeFeedbackMessage ?: "",
@@ -375,7 +405,7 @@ fun VerticalPlayerScreen(
             }
         }
 
-        // OSD Overlay (Top metadata + Speed Controller + Icon-only Mode Cycler + Circular Playlist Badges)
+        // OSD Overlay
         OsdOverlay(
             isVisible = isOsdVisible,
             currentVideo = activeVideo,
@@ -383,6 +413,9 @@ fun VerticalPlayerScreen(
             totalVideos = videos.size,
             playMode = playMode,
             playbackSpeed = playbackSpeed,
+            progressBarScale = progressBarScale,
+            abStartMs = abPointAMs,
+            abEndMs = abPointBMs,
             activePlaylistIds = activePlaylistIds,
             badgesAlwaysVisible = badgesAlwaysVisible,
             badgeOffsetY = badgeOffsetY,
@@ -398,6 +431,54 @@ fun VerticalPlayerScreen(
                 }
             },
             onSpeedChanged = onSpeedChanged,
+            onProgressBarScaleChanged = onProgressBarScaleChanged,
+            onSetPointA = {
+                if (activeVideo != null) {
+                    val player = playerPool.getOrCreatePlayer(activeVideo)
+                    val pos = player.currentPosition.coerceAtLeast(0L)
+                    abPointAMs = pos
+                    if (abPointBMs != null && pos >= abPointBMs!!) {
+                        abPointBMs = null
+                    }
+                    modeFeedbackMessage = "Point A set at ${FolderScanner.formatDuration(pos)}"
+                    scope.launch {
+                        delay(1400)
+                        modeFeedbackMessage = null
+                    }
+                }
+            },
+            onSetPointB = {
+                if (activeVideo != null) {
+                    val player = playerPool.getOrCreatePlayer(activeVideo)
+                    val pos = player.currentPosition.coerceAtLeast(0L)
+                    val currentA = abPointAMs
+                    if (currentA == null) {
+                        abPointAMs = 0L
+                        abPointBMs = pos.coerceAtLeast(500L)
+                    } else if (pos < currentA) {
+                        abPointBMs = currentA
+                        abPointAMs = pos
+                    } else {
+                        abPointBMs = pos.coerceAtLeast(currentA + 300L)
+                    }
+                    val aStr = FolderScanner.formatDuration(abPointAMs ?: 0L)
+                    val bStr = FolderScanner.formatDuration(abPointBMs ?: 0L)
+                    modeFeedbackMessage = "A-B Loop: $aStr → $bStr"
+                    scope.launch {
+                        delay(1600)
+                        modeFeedbackMessage = null
+                    }
+                }
+            },
+            onClearAbLoop = {
+                abPointAMs = null
+                abPointBMs = null
+                modeFeedbackMessage = "A-B Loop Cleared"
+                scope.launch {
+                    delay(1200)
+                    modeFeedbackMessage = null
+                }
+            },
             onTogglePlaylist = { playlistId ->
                 if (activeVideo != null) {
                     onTogglePlaylist(activeVideo.id, playlistId)
@@ -412,16 +493,16 @@ fun VerticalPlayerScreen(
             }
         )
 
-        // Bottom Controls Container: Pause File Info & Action Bar + Seeking Bar
+        // Bottom Controls Container: Detail/Share/Delete Action Bar + Expanded/Thin Seeking Bar
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // Pause Action Bar: Shows File Info, Share Button, and Physical Delete Button when video is PAUSED
+            // Detail, Share, Delete Bar: Shows on SINGLE TAP (isOsdVisible) AND when PAUSED (!isPlayingState)
             AnimatedVisibility(
-                visible = !isPlayingState && activeVideo != null,
+                visible = (!isPlayingState || isOsdVisible) && activeVideo != null,
                 enter = fadeIn() + slideInVertically { it / 2 },
                 exit = fadeOut() + slideOutVertically { it / 2 }
             ) {
@@ -433,7 +514,7 @@ fun VerticalPlayerScreen(
                             .testTag("pause_info_action_bar"),
                         shape = RoundedCornerShape(16.dp),
                         color = Color(0xDC151922),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333D52))
+                        border = BorderStroke(1.dp, Color(0xFF333D52))
                     ) {
                         Row(
                             modifier = Modifier
@@ -540,10 +621,14 @@ fun VerticalPlayerScreen(
                 }
             }
 
-            // Bottom Seeking Bar: thin draggable line at the very bottom
+            // Bottom Seeking Bar: Expands by progressBarScale (default 3x) on single tap or pause for fast-forward/seeking
             VideoProgressBar(
                 currentPositionMs = currentPositionMs,
                 durationMs = currentDurationMs,
+                isExpanded = isOsdVisible || !isPlayingState || isSeekingBarDragging,
+                sizeMultiplier = progressBarScale,
+                abStartMs = abPointAMs,
+                abEndMs = abPointBMs,
                 onSeek = { targetMs ->
                     if (currentPage in videos.indices) {
                         val currentVid = videos[currentPage]
@@ -551,6 +636,9 @@ fun VerticalPlayerScreen(
                         player.seekTo(targetMs)
                         currentPositionMs = targetMs
                     }
+                },
+                onDraggingChanged = { dragging ->
+                    isSeekingBarDragging = dragging
                 }
             )
         }

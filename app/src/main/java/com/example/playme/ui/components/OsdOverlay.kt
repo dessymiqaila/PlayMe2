@@ -3,6 +3,7 @@ package com.example.playme.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -25,8 +26,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AvTimer
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SortByAlpha
@@ -68,6 +71,9 @@ fun OsdOverlay(
     totalVideos: Int,
     playMode: PlayOrderMode,
     playbackSpeed: Float,
+    progressBarScale: Int,
+    abStartMs: Long?,
+    abEndMs: Long?,
     activePlaylistIds: Set<Int>,
     badgesAlwaysVisible: Boolean,
     badgeOffsetY: Float,
@@ -75,12 +81,20 @@ fun OsdOverlay(
     onSaveBadgeOffset: (Float) -> Unit,
     onCyclePlayMode: () -> Unit,
     onSpeedChanged: (Float) -> Unit,
+    onProgressBarScaleChanged: (Int) -> Unit,
+    onSetPointA: () -> Unit,
+    onSetPointB: () -> Unit,
+    onClearAbLoop: () -> Unit,
     onTogglePlaylist: (Int) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showSpeedSelector by remember { mutableStateOf(false) }
+    var showAbMenu by remember { mutableStateOf(false) }
     var currentBadgeOffsetY by remember(badgeOffsetY) { mutableFloatStateOf(badgeOffsetY) }
+
+    val isAbActive = abStartMs != null && abEndMs != null
+    val isOnlyASet = abStartMs != null && abEndMs == null
 
     Box(
         modifier = modifier.fillMaxSize()
@@ -98,7 +112,7 @@ fun OsdOverlay(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.75f),
+                                Color.Black.copy(alpha = 0.78f),
                                 Color.Transparent,
                                 Color.Transparent,
                                 Color.Black.copy(alpha = 0.85f)
@@ -108,7 +122,48 @@ fun OsdOverlay(
             )
         }
 
-        // Top Bar: Back button, Video info, Speed Controller, Mode Toggle (icon only), and Badge Visibility Pin
+        // Persistent compact A-B Active badge when OSD is hidden so user remembers A-B loop is running
+        if (!isVisible && (isAbActive || isOnlyASet)) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 10.dp, end = 14.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xCC0D1B2A))
+                    .clickable { onClearAbLoop() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .testTag("ab_active_chip"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Repeat,
+                    contentDescription = "A-B Loop Active",
+                    tint = Color(0xFF00E5FF),
+                    modifier = Modifier.size(14.dp)
+                )
+                val label = if (isAbActive) {
+                    "${FolderScanner.formatDuration(abStartMs!!)} - ${FolderScanner.formatDuration(abEndMs!!)}"
+                } else {
+                    "A: ${FolderScanner.formatDuration(abStartMs!!)}"
+                }
+                Text(
+                    text = label,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Clear A-B Loop",
+                    tint = Color(0xFFA1A8B8),
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+        }
+
+        // Top Bar: Back button, Video info, A-B Loop, Speed/Bar Controller, Mode Toggle (icon only), and Badge Pin
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(),
@@ -117,7 +172,7 @@ fun OsdOverlay(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -132,7 +187,7 @@ fun OsdOverlay(
                     IconButton(
                         onClick = onBack,
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.45f))
                             .testTag("osd_back_button")
@@ -140,12 +195,13 @@ fun OsdOverlay(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back to Dashboard",
-                            tint = Color.White
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
                     Column(
-                        modifier = Modifier.padding(start = 10.dp)
+                        modifier = Modifier.padding(start = 8.dp, end = 6.dp)
                     ) {
                         Text(
                             text = currentVideo?.fileName ?: "PlayMe",
@@ -157,7 +213,7 @@ fun OsdOverlay(
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${currentIndex + 1} / $totalVideos",
+                                text = "${currentIndex + 1}/$totalVideos",
                                 color = Color(0xFFFFAB40),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -166,58 +222,85 @@ fun OsdOverlay(
                                 Text(
                                     text = " • ${FolderScanner.formatFileSize(currentVideo.fileSizeBytes)}",
                                     color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 11.sp
-                                )
-                                Text(
-                                    text = " • ${FolderScanner.formatDuration(currentVideo.durationMs)}",
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 11.sp
+                                    fontSize = 11.sp,
+                                    maxLines = 1
                                 )
                             }
                         }
                     }
                 }
 
-                // Top Right Action Buttons: Speed Pill, Order Mode (Icon Only), and Badges Pin Toggle
+                // Top Right Action Buttons: A-B Loop, Speed/Bar Pill, Order Mode (Icon Only), Pin Toggle
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Speed Controller Button
+                    // A-B Loop Button
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(18.dp))
                             .background(
-                                if (playbackSpeed != 1.0f) Color(0xFFFF6D00) else Color.Black.copy(alpha = 0.55f)
+                                when {
+                                    isAbActive -> Color(0xFF0097A7)
+                                    isOnlyASet -> Color(0xFFFF8F00)
+                                    showAbMenu -> Color(0xFF2B3548)
+                                    else -> Color.Black.copy(alpha = 0.55f)
+                                }
                             )
-                            .clickable { showSpeedSelector = !showSpeedSelector }
+                            .clickable {
+                                showAbMenu = !showAbMenu
+                                if (showAbMenu) showSpeedSelector = false
+                            }
                             .padding(horizontal = 9.dp, vertical = 7.dp)
+                            .testTag("osd_ab_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "A-B",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    // Speed & Bar Size Controller Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                if (playbackSpeed != 1.0f || showSpeedSelector) Color(0xFFFF6D00) else Color.Black.copy(alpha = 0.55f)
+                            )
+                            .clickable {
+                                showSpeedSelector = !showSpeedSelector
+                                if (showSpeedSelector) showAbMenu = false
+                            }
+                            .padding(horizontal = 8.dp, vertical = 7.dp)
                             .testTag("osd_speed_button"),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Speed,
-                                contentDescription = "Playback Speed Controller",
-                                tint = if (playbackSpeed != 1.0f) Color.White else Color(0xFFFFAB40),
-                                modifier = Modifier.size(16.dp)
+                                contentDescription = "Speed and Bar Size",
+                                tint = if (playbackSpeed != 1.0f || showSpeedSelector) Color.White else Color(0xFFFFAB40),
+                                modifier = Modifier.size(15.dp)
                             )
                             Text(
                                 text = "${playbackSpeed}x",
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    // Playback Order Mode Cycle Toggle - ICON ONLY (no text per user request)
+                    // Playback Order Mode Cycle Toggle - ICON ONLY
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.55f))
                             .clickable { onCyclePlayMode() }
@@ -236,14 +319,14 @@ fun OsdOverlay(
                             imageVector = icon,
                             contentDescription = playMode.label,
                             tint = Color(0xFFFF6D00),
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // Playlist Badges Visibility Pin Toggle
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
                             .background(
                                 if (badgesAlwaysVisible) Color(0xFFFF6D00) else Color.Black.copy(alpha = 0.55f)
@@ -254,16 +337,130 @@ fun OsdOverlay(
                     ) {
                         Icon(
                             imageVector = if (badgesAlwaysVisible) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                            contentDescription = if (badgesAlwaysVisible) "Playlist Badges: Always Visible" else "Playlist Badges: On Touch Only",
+                            contentDescription = if (badgesAlwaysVisible) "Badges Always Visible" else "Badges On Touch",
                             tint = if (badgesAlwaysVisible) Color.White else Color(0xFFA1A8B8),
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
         }
 
-        // Expandable Speed Selector Menu
+        // Expandable A-B Repeat Loop Menu
+        AnimatedVisibility(
+            visible = isVisible && showAbMenu,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 56.dp, end = 12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xF2151923),
+                border = BorderStroke(1.dp, Color(0xFF00B8D4)),
+                shadowElevation = 8.dp,
+                modifier = Modifier.testTag("ab_loop_menu")
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "A-B REPEAT LOOP",
+                        color = Color(0xFF00E5FF),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "A: ${abStartMs?.let { FolderScanner.formatDuration(it) } ?: "--:--"}",
+                            color = if (abStartMs != null) Color(0xFF00E5FF) else Color(0xFFA1A8B8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "→",
+                            color = Color(0xFF6C7689),
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "B: ${abEndMs?.let { FolderScanner.formatDuration(it) } ?: "--:--"}",
+                            color = if (abEndMs != null) Color(0xFF00E676) else Color(0xFFA1A8B8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (abStartMs != null) Color(0xFF00838F) else Color(0xFF242A3A))
+                                .clickable { onSetPointA() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .testTag("ab_set_a_button")
+                        ) {
+                            Text(
+                                text = "Set A",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (abEndMs != null) Color(0xFF2E7D32) else Color(0xFF242A3A))
+                                .clickable { onSetPointB() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .testTag("ab_set_b_button")
+                        ) {
+                            Text(
+                                text = "Set B",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0x33FF1744))
+                                .clickable {
+                                    onClearAbLoop()
+                                    showAbMenu = false
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                .testTag("ab_clear_button")
+                        ) {
+                            Text(
+                                text = "Clear",
+                                color = Color(0xFFFF5252),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Expandable Speed & Progress Bar Size Selector Menu
         AnimatedVisibility(
             visible = isVisible && showSpeedSelector,
             enter = fadeIn(),
@@ -271,12 +468,12 @@ fun OsdOverlay(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 56.dp, end = 14.dp)
+                .padding(top = 56.dp, end = 12.dp)
         ) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0xF0181C26),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF353F57)),
+                border = BorderStroke(1.dp, Color(0xFF353F57)),
                 shadowElevation = 8.dp
             ) {
                 Column(
@@ -306,7 +503,6 @@ fun OsdOverlay(
                                     )
                                     .clickable {
                                         onSpeedChanged(spd)
-                                        showSpeedSelector = false
                                     }
                                     .padding(horizontal = 8.dp, vertical = 6.dp)
                                     .testTag("speed_option_${spd}x"),
@@ -321,12 +517,50 @@ fun OsdOverlay(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "SEEK BAR SIZE (ON TOUCH)",
+                        color = Color(0xFFA1A8B8),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(1, 2, 3, 4).forEach { scale ->
+                            val isSelected = progressBarScale == scale
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isSelected) Color(0xFFFF6D00) else Color(0xFF242A3A)
+                                    )
+                                    .clickable {
+                                        onProgressBarScaleChanged(scale)
+                                    }
+                                    .padding(horizontal = 11.dp, vertical = 6.dp)
+                                    .testTag("osd_bar_scale_${scale}x"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${scale}x",
+                                    color = if (isSelected) Color.White else Color(0xFFCCD2E0),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // Right-Side Playlist Icons (1..6)
-        // Can be always visible or visible on touch according to badgesAlwaysVisible setting
+        // Right-Side Playlist Icons (1..6) - Transparent outer container (no box!)
         val shouldShowBadges = badgesAlwaysVisible || isVisible
 
         AnimatedVisibility(
@@ -340,9 +574,6 @@ fun OsdOverlay(
         ) {
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .padding(horizontal = 4.dp, vertical = 6.dp)
                     .pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onDragEnd = { onSaveBadgeOffset(currentBadgeOffsetY) },
@@ -354,31 +585,26 @@ fun OsdOverlay(
                     }
                     .testTag("right_playlist_container"),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Sleek Drag Handle at top of badge column
-                Box(
-                    modifier = Modifier
-                        .padding(top = 2.dp, bottom = 2.dp)
-                        .size(width = 24.dp, height = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+                // Drag handle shown subtly only when OSD is tapped so floating circles have zero clutter
+                if (isVisible) {
                     Icon(
                         imageVector = Icons.Filled.DragHandle,
                         contentDescription = "Drag to reposition playlist badges",
-                        tint = Color.White.copy(alpha = 0.45f),
-                        modifier = Modifier.size(16.dp)
+                        tint = Color.White.copy(alpha = 0.55f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                // 6 Circular Playlist Badges (1..6)
+                // 6 Floating Circular Playlist Badges (1..6)
                 (1..6).forEach { playlistNum ->
                     val isInPlaylist = activePlaylistIds.contains(playlistNum)
                     PlaylistCircleBadge(
                         playlistNumber = playlistNum,
                         isActive = isInPlaylist,
                         onToggle = { onTogglePlaylist(playlistNum) },
-                        size = 40.dp
+                        size = 42.dp
                     )
                 }
             }

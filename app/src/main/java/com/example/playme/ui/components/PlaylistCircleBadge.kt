@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -33,14 +35,14 @@ fun PlaylistCircleBadge(
     isActive: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 48.dp
+    size: Dp = 44.dp
 ) {
     val scaleAnim = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(isActive) {
         scaleAnim.animateTo(
-            targetValue = 1.2f,
+            targetValue = 1.18f,
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
         )
         scaleAnim.animateTo(
@@ -49,20 +51,37 @@ fun PlaylistCircleBadge(
         )
     }
 
-    val activeColor = Color(0xFFFF6D00)
-    val activeBg = Color(0x4DFF6D00)
-    val inactiveBorder = Color.White.copy(alpha = 0.55f)
-    val inactiveBg = Color.Black.copy(alpha = 0.45f)
+    val activeBrush = Brush.radialGradient(
+        colors = listOf(Color(0xCCFF9100), Color(0x99FF5500))
+    )
+    val inactiveBrush = Brush.radialGradient(
+        colors = listOf(Color(0x44000000), Color(0x66000000))
+    )
+
+    val activeBorder = Color(0xFFFFB74D)
+    val inactiveBorder = Color.White.copy(alpha = 0.6f)
 
     Box(
         modifier = modifier
             .size(size)
             .scale(scaleAnim.value)
+            .then(
+                if (isActive) {
+                    Modifier.shadow(
+                        elevation = 6.dp,
+                        shape = CircleShape,
+                        ambientColor = Color(0xFFFF6D00),
+                        spotColor = Color(0xFFFF6D00)
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .clip(CircleShape)
-            .background(if (isActive) activeBg else inactiveBg)
+            .background(if (isActive) activeBrush else inactiveBrush)
             .border(
                 width = if (isActive) 2.5.dp else 1.5.dp,
-                color = if (isActive) activeColor else inactiveBorder,
+                color = if (isActive) activeBorder else inactiveBorder,
                 shape = CircleShape
             )
             .clickable(
@@ -83,8 +102,8 @@ fun PlaylistCircleBadge(
     ) {
         Text(
             text = playlistNumber.toString(),
-            color = if (isActive) Color(0xFFFFD180) else Color.White,
-            fontSize = (size.value * 0.36f).sp,
+            color = if (isActive) Color.White else Color.White.copy(alpha = 0.92f),
+            fontSize = (size.value * 0.40f).sp,
             fontWeight = FontWeight.Black
         )
     }
